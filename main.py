@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -6,16 +6,12 @@ import openai
 import os
 import re
 from dotenv import load_dotenv
-import asyncpg
 
 # Load environment variables
 load_dotenv()
 
 # FastAPI app
 app = FastAPI()
-
-# Database connection pool
-db_pool = None
 
 # OpenAI API key setup
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -24,59 +20,15 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 app.mount("/static", StaticFiles(directory="templates"), name="static")
 
 
-@app.on_event("startup")
-async def startup():
-    global db_pool
-    db_pool = await asyncpg.create_pool(
-        dsn=os.getenv("DATABASE_URL"),
-        min_size=1,
-        max_size=10
-    )
-    # Create expense table if it doesn't exist
-    async with db_pool.acquire() as conn:
-        await conn.execute('''
-                           CREATE TABLE IF NOT EXISTS expenses
-                           (
-                               id
-                               SERIAL
-                               PRIMARY
-                               KEY,
-                               title
-                               TEXT
-                               NOT
-                               NULL,
-                               category
-                               TEXT
-                               NOT
-                               NULL,
-                               amount
-                               DECIMAL
-                           (
-                               10,
-                               2
-                           ) NOT NULL,
-                               created_at TIMESTAMP DEFAULT NOW
-                           (
-                           )
-                               )
-                           ''')
-        # Add indexes for better performance
-        await conn.execute('''
-                           CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
-                           CREATE INDEX IF NOT EXISTS idx_expenses_created_at ON expenses(created_at);
-                           ''')
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    await db_pool.close()
-
-
 # Expense model
 class Expense(BaseModel):
     title: str
     category: str
     amount: float
+
+
+# Temporary in-memory database
+expenses_db = []
 
 
 class ExpenseInput(BaseModel):
@@ -93,17 +45,8 @@ async def get_html():
 async def add_expense(expense_input: ExpenseInput):
     description = expense_input.description
     parsed_data = await parse_expense(description)
-
-    try:
-        async with db_pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO expenses(title, category, amount) VALUES($1, $2, $3)",
-                parsed_data.title, parsed_data.category, parsed_data.amount
-            )
-        return {"message": "Expense added successfully", "data": parsed_data}
-    except asyncpg.PostgresError as e:
-        raise HTTPException(status_code=500, detail="Database error")
-
+    expenses_db.append(parsed_data)
+    return {"message": "Expense added successfully", "data": parsed_data}
 
 
 async def parse_expense(description: str) -> Expense:
@@ -183,27 +126,15 @@ async def parse_expense(description: str) -> Expense:
 
     return Expense(title=title, category=category, amount=amount)
 
+
 @app.get("/get_expenses/")
 async def get_expenses():
-    try:
-        async with db_pool.acquire() as conn:
-            expenses = await conn.fetch("SELECT title, category, amount FROM expenses ORDER BY created_at DESC")
-        return {"expenses": expenses}
-    except asyncpg.PostgresError as e:
-        raise HTTPException(status_code=500, detail="Database error")
+    return {"expenses": expenses_db}
 
 
 @app.get("/get_expenses/{category}")
 async def get_expenses_by_category(category: str):
     if category.lower() == "all":
-        return await get_expenses()
-
-    try:
-        async with db_pool.acquire() as conn:
-            expenses = await conn.fetch(
-                "SELECT title, category, amount FROM expenses WHERE LOWER(category) = $1 ORDER BY created_at DESC",
-                category.lower()
-            )
-        return {"expenses": expenses}
-    except asyncpg.PostgresError as e:
-        raise HTTPException(status_code=500, detail="Database error")
+        return {"expenses": expenses_db}
+    filtered_expenses = [e for e in expenses_db if e.category.lower() == category.lower()]
+    return {"expenses": filtered_expenses}
