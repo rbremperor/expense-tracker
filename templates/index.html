@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense Tracker</title>
+    <!-- Bootstrap CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .filter-btn {
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+        .filter-btn.active {
+            background-color: #0d6efd;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="my-4">Expense Tracker</h1>
+
+        <!-- Expense Form -->
+        <form id="expense-form" class="mb-4">
+            <div class="mb-3">
+                <label for="expense-input" class="form-label">Expense Description</label>
+                <input type="text" class="form-control" id="expense-input" placeholder="e.g. lunch 400">
+            </div>
+            <button type="submit" class="btn btn-primary">Add Expense</button>
+        </form>
+
+        <!-- Expenses Table -->
+        <h3>Expenses List</h3>
+
+        <!-- Category Filter -->
+        <div class="mb-3">
+            <label class="form-label">Filter by Category:</label>
+            <div class="btn-group" role="group" id="category-filter">
+                <button type="button" class="btn btn-outline-primary filter-btn active" data-category="all">All</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-category="food">Food</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-category="transportation">Transport</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-category="entertainment">Entertainment</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-category="shopping">Shopping</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-category="bills">Bills</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-category="other">Other</button>
+            </div>
+        </div>
+
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Amount (USD)</th>
+                </tr>
+            </thead>
+            <tbody id="expense-table-body">
+                <!-- Expenses will be inserted here -->
+            </tbody>
+        </table>
+
+        <!-- Total -->
+        <h4>Total Amount: <span id="total-amount">0</span> USD</h4>
+    </div>
+
+    <!-- Bootstrap JS and jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Add Expense Form submission
+        document.getElementById("expense-form").addEventListener("submit", async function(event) {
+            event.preventDefault();
+            const description = document.getElementById("expense-input").value;
+
+            const response = await fetch("/add_expense/", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ description: description })
+            });
+
+            const data = await response.json();
+            document.getElementById("expense-input").value = "";
+            loadExpenses(getCurrentFilter());
+        });
+
+        // Function to load expenses
+        async function loadExpenses(category = "all") {
+            const endpoint = category === "all" ? "/get_expenses/" : `/get_expenses/${category}`;
+            const response = await fetch(endpoint);
+            const data = await response.json();
+            const expenses = data.expenses;
+
+            const tableBody = document.getElementById("expense-table-body");
+            tableBody.innerHTML = "";
+
+            let totalAmount = 0;
+
+            expenses.forEach(expense => {
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${expense.title}</td>
+                    <td>${expense.category}</td>
+                    <td>${expense.amount}</td>
+                `;
+                tableBody.appendChild(row);
+                totalAmount += expense.amount;
+            });
+
+            document.getElementById("total-amount").textContent = totalAmount.toFixed(2);
+        }
+
+        // Get currently active filter
+        function getCurrentFilter() {
+            const activeBtn = document.querySelector('.filter-btn.active');
+            return activeBtn ? activeBtn.dataset.category : 'all';
+        }
+
+        // Filter button event listeners
+        document.querySelectorAll('.filter-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                document.querySelectorAll('.filter-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                this.classList.add('active');
+                loadExpenses(this.dataset.category);
+            });
+        });
+
+        // Initial load
+        loadExpenses();
+    </script>
+</body>
+</html>
