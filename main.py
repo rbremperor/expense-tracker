@@ -17,7 +17,7 @@ app = FastAPI()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Serve static files (index.html)
-app.mount("/static", StaticFiles(directory="templates"), name="static")
+app.mount("/templates", StaticFiles(directory="templates"), name="templates")
 
 
 # Expense model
