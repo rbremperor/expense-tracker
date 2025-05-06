@@ -122,17 +122,23 @@ async def parse_expense(description: str) -> Expense:
 
     Where:
     - title: 1-3 word concise title based on the description
-    - category: One of these exact categories:
-        Food (anything edible: groceries, restaurants, coffee, fruits)
-        Transportation (rides, fuel, public transit, parking)
-        Entertainment (movies, games, events, streaming)
-        Shopping (physical goods, clothes, electronics)
-        Bills (utilities, rent, subscriptions)
-        Services (repairs, maintenance, professional services)
-        Health (medical, pharmacy, fitness)
+    - category: One of these exact categories (choose the best match):
+        Food (all food/drink: groceries, restaurants, coffee, fruits, snacks)
+        Transportation (all vehicle expenses: gas, oil, repairs, parking, rideshares, public transit)
+        Entertainment (movies, games, concerts, streaming, hobbies)
+        Shopping (physical goods: clothes, electronics, household items)
+        Bills (regular payments: rent, utilities, subscriptions, phone)
+        Services (professional services: repairs, maintenance, cleaning)
+        Health (medical, pharmacy, gym, wellness)
         Travel (hotels, flights, vacation expenses)
         Other (anything that doesn't fit above categories)
-    - amount: numeric value ({amount} if not specified in the description)
+    - amount: {amount} (use this exact value unless the description contains a different amount)
+
+    Examples:
+    "Shell gas station" → Gas|Transportation|30.00
+    "Motor oil 5W-30" → Motor oil|Transportation|12.99
+    "Oil change service" → Oil change|Transportation|45.00
+    "Dinner at Pizza Hut" → Pizza Hut|Food|25.00
     """
 
     try:
@@ -144,7 +150,7 @@ async def parse_expense(description: str) -> Expense:
                 {"role": "user", "content": prompt}
             ],
             temperature=0.1,
-            max_tokens=50
+            max_tokens=100
         )
 
         content = response.choices[0].message.content.strip()
@@ -158,12 +164,19 @@ async def parse_expense(description: str) -> Expense:
                 except ValueError:
                     pass
 
-                # Validate category
-                valid_categories = [
-                    "Food", "Transportation", "Entertainment", "Shopping",
-                    "Bills", "Services", "Health", "Travel", "Other"
-                ]
-                category = category if category in valid_categories else "Other"
+                # Validate category matches frontend options
+                valid_categories = {
+                    "Food": "food",
+                    "Transportation": "transportation",
+                    "Entertainment": "entertainment",
+                    "Shopping": "shopping",
+                    "Bills": "bills",
+                    "Services": "services",
+                    "Health": "health",
+                    "Travel": "travel",
+                    "Other": "other"
+                }
+                category = valid_categories.get(category, "other")
 
                 return Expense(title=title, category=category, amount=amount)
 
@@ -174,7 +187,8 @@ async def parse_expense(description: str) -> Expense:
     title = description
     if amount_match:
         title = description[:amount_match.start()].strip()
-    return Expense(title=title, category="Other", amount=amount)
+    return Expense(title=title, category="other", amount=amount)
+
 
 @app.get("/get_expenses/")
 async def get_expenses():
