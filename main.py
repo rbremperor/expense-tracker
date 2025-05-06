@@ -113,32 +113,33 @@ async def parse_expense(description: str) -> Expense:
     if amount_match:
         amount = float(amount_match.group(1))
 
-    # Call OpenAI for all categorization to ensure consistency
+    # Enhanced prompt with clear vehicle maintenance examples
     prompt = f"""
-    Categorize this expense: "{description}"
+    Analyze this expense description and categorize it: "{description}"
 
-    Respond ONLY with this exact format:
+    Respond STRICTLY in this format:
     title|category|amount
 
-    Where:
-    - title: 1-3 word concise title based on the description
-    - category: One of these exact categories (choose the best match):
-        Food (all food/drink: groceries, restaurants, coffee, fruits, snacks)
-        Transportation (all vehicle expenses: gas, oil, repairs, parking, rideshares, public transit)
-        Entertainment (movies, games, concerts, streaming, hobbies)
-        Shopping (physical goods: clothes, electronics, household items)
-        Bills (regular payments: rent, utilities, subscriptions, phone)
-        Services (professional services: repairs, maintenance, cleaning)
-        Health (medical, pharmacy, gym, wellness)
-        Travel (hotels, flights, vacation expenses)
-        Other (anything that doesn't fit above categories)
-    - amount: {amount} (use this exact value unless the description contains a different amount)
+    Categories (MUST USE THESE EXACT NAMES):
+    - Food: Groceries, restaurants, coffee, snacks
+    - Transportation: Gas, oil, car maintenance, repairs, parking, public transit
+    - Entertainment: Movies, games, concerts, streaming
+    - Shopping: Physical goods, clothes, electronics
+    - Bills: Regular payments, utilities, subscriptions
+    - Services: Professional services, repairs
+    - Health: Medical, pharmacy, fitness
+    - Travel: Hotels, flights, vacation
+    - Other: Anything else
 
-    Examples:
-    "Shell gas station" → Gas|Transportation|30.00
-    "Motor oil 5W-30" → Motor oil|Transportation|12.99
-    "Oil change service" → Oil change|Transportation|45.00
-    "Dinner at Pizza Hut" → Pizza Hut|Food|25.00
+    IMPORTANT EXAMPLES:
+    "motor oil" → Motor oil|Transportation|12.99
+    "oil change" → Oil change|Transportation|45.00
+    "car wash" → Car wash|Transportation|15.00
+    "tires" → Tires|Transportation|200.00
+    "gas station" → Gas|Transportation|35.00
+
+    Now categorize this: "{description}"
+    Amount to use: {amount} (unless description specifies different)
     """
 
     try:
@@ -146,10 +147,10 @@ async def parse_expense(description: str) -> Expense:
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system",
-                 "content": "You are an expense categorization assistant. Respond ONLY in the specified format."},
+                 "content": "You are a precise expense categorizer. Use ONLY the specified format and categories."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.1,
+            temperature=0.0,  # Lower temperature for more deterministic responses
             max_tokens=100
         )
 
@@ -159,36 +160,31 @@ async def parse_expense(description: str) -> Expense:
             if len(parts) >= 3:
                 title = parts[0].strip()
                 category = parts[1].strip()
+
+                # Convert to lowercase to match frontend
+                category = category.lower()
+
+                # Validate category
+                valid_categories = {
+                    "food", "transportation", "entertainment",
+                    "shopping", "bills", "services",
+                    "health", "travel", "other"
+                }
+                category = category if category in valid_categories else "other"
+
                 try:
                     amount = float(parts[2].strip()) if parts[2].strip().replace('.', '', 1).isdigit() else amount
                 except ValueError:
                     pass
-
-                # Validate category matches frontend options
-                valid_categories = {
-                    "Food": "food",
-                    "Transportation": "transportation",
-                    "Entertainment": "entertainment",
-                    "Shopping": "shopping",
-                    "Bills": "bills",
-                    "Services": "services",
-                    "Health": "health",
-                    "Travel": "travel",
-                    "Other": "other"
-                }
-                category = valid_categories.get(category, "other")
 
                 return Expense(title=title, category=category, amount=amount)
 
     except Exception as e:
         print(f"OpenAI API error: {e}")
 
-    # Fallback if API fails
-    title = description
-    if amount_match:
-        title = description[:amount_match.start()].strip()
+    # Fallback
+    title = description[:amount_match.start()].strip() if amount_match else description
     return Expense(title=title, category="other", amount=amount)
-
 
 @app.get("/get_expenses/")
 async def get_expenses():
