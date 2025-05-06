@@ -144,7 +144,7 @@ async def parse_expense(description: str) -> Expense:
 
     try:
         response = await openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4",
             messages=[
                 {"role": "system",
                  "content": "You are a precise expense categorizer. Use ONLY the specified format and categories."},
