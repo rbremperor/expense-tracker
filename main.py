@@ -107,38 +107,13 @@ async def add_expense(expense_input: ExpenseInput):
 
 
 async def parse_expense(description: str) -> Expense:
-    lower_desc = description.lower()
+    # First extract amount if it exists
     amount = 0
-    title = description
-    # Extract amount if it exists
     amount_match = re.search(r'(\d+\.?\d*)', description)
     if amount_match:
         amount = float(amount_match.group(1))
-        title = description[:amount_match.start()].strip()
 
-    # Simple category detection
-    category = "Other"
-    food_keywords = ["lunch", "dinner", "breakfast", "coffee", "banana", "apple", "groceries", "food", "restaurant"]
-    transport_keywords = ["uber", "taxi", "train", "bus", "metro", "subway", "gas", "parking"]
-    entertainment_keywords = ["movie", "netflix", "concert", "game", "hobby"]
-    shopping_keywords = ["amazon", "shirt", "purchase", "buy", "mall"]
-    bills_keywords = ["bill", "rent", "electric", "water", "internet", "phone"]
-
-    if any(word in lower_desc for word in food_keywords):
-        category = "Food"
-    elif any(word in lower_desc for word in transport_keywords):
-        category = "Transportation"
-    elif any(word in lower_desc for word in entertainment_keywords):
-        category = "Entertainment"
-    elif any(word in lower_desc for word in shopping_keywords):
-        category = "Shopping"
-    elif any(word in lower_desc for word in bills_keywords):
-        category = "Bills"
-
-    if category != "Other":
-        return Expense(title=title, category=category, amount=amount)
-
-    # Call OpenAI for ambiguous cases
+    # Call OpenAI for all categorization to ensure consistency
     prompt = f"""
     Categorize this expense: "{description}"
 
@@ -146,13 +121,22 @@ async def parse_expense(description: str) -> Expense:
     title|category|amount
 
     Where:
-    - title: 1-3 word title
-    - category: Food, Transportation, Entertainment, Shopping, Bills, or Other
-    - amount: numeric value (0 if not specified)
+    - title: 1-3 word concise title based on the description
+    - category: One of these exact categories:
+        Food (anything edible: groceries, restaurants, coffee, fruits)
+        Transportation (rides, fuel, public transit, parking)
+        Entertainment (movies, games, events, streaming)
+        Shopping (physical goods, clothes, electronics)
+        Bills (utilities, rent, subscriptions)
+        Services (repairs, maintenance, professional services)
+        Health (medical, pharmacy, fitness)
+        Travel (hotels, flights, vacation expenses)
+        Other (anything that doesn't fit above categories)
+    - amount: numeric value ({amount} if not specified in the description)
     """
 
     try:
-        response = openai.ChatCompletion.create(
+        response = await openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system",
@@ -165,23 +149,32 @@ async def parse_expense(description: str) -> Expense:
 
         content = response.choices[0].message.content.strip()
         if "|" in content:
-            title, category, amount_str = content.split("|")
-            try:
-                amount = float(amount_str) if amount_str.replace('.', '', 1).isdigit() else amount
-            except ValueError:
-                pass
+            parts = content.split("|")
+            if len(parts) >= 3:
+                title = parts[0].strip()
+                category = parts[1].strip()
+                try:
+                    amount = float(parts[2].strip()) if parts[2].strip().replace('.', '', 1).isdigit() else amount
+                except ValueError:
+                    pass
 
-            valid_categories = ["Food", "Transportation", "Entertainment", "Shopping", "Bills", "Other"]
-            if category not in valid_categories:
-                category = "Other"
+                # Validate category
+                valid_categories = [
+                    "Food", "Transportation", "Entertainment", "Shopping",
+                    "Bills", "Services", "Health", "Travel", "Other"
+                ]
+                category = category if category in valid_categories else "Other"
 
-            return Expense(title=title, category=category, amount=amount)
+                return Expense(title=title, category=category, amount=amount)
 
     except Exception as e:
         print(f"OpenAI API error: {e}")
 
-    return Expense(title=title, category=category, amount=amount)
-
+    # Fallback if API fails
+    title = description
+    if amount_match:
+        title = description[:amount_match.start()].strip()
+    return Expense(title=title, category="Other", amount=amount)
 
 @app.get("/get_expenses/")
 async def get_expenses():
