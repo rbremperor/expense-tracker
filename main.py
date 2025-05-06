@@ -33,7 +33,7 @@ async def startup():
         min_size=1,
         max_size=10
     )
-    # Create expenses table if it doesn't exist
+    # Create expense table if it doesn't exist
     async with db_pool.acquire() as conn:
         await conn.execute('''
                            CREATE TABLE IF NOT EXISTS expenses
@@ -106,12 +106,10 @@ async def add_expense(expense_input: ExpenseInput):
         raise HTTPException(status_code=500, detail="Database error")
 
 
-
 async def parse_expense(description: str) -> Expense:
     lower_desc = description.lower()
     amount = 0
     title = description
-
     # Extract amount if it exists
     amount_match = re.search(r'(\d+\.?\d*)', description)
     if amount_match:
@@ -183,6 +181,7 @@ async def parse_expense(description: str) -> Expense:
         print(f"OpenAI API error: {e}")
 
     return Expense(title=title, category=category, amount=amount)
+
 
 @app.get("/get_expenses/")
 async def get_expenses():
