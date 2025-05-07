@@ -216,13 +216,25 @@ async def delete_expense(expense_id: int):
         raise HTTPException(status_code=500, detail="Error deleting expense")
 
 
-# Helper Functions
 async def parse_expense(description: str) -> Expense:
     # Extract amount if it exists
     amount = 0.0
     amount_match = re.search(r'(\d+\.?\d*)', description)
     if amount_match:
         amount = float(amount_match.group(1))
+
+    # Enhanced transportation keywords
+    transport_keywords = [
+        'motor oil', 'oil change', 'car wash', 'tires', 'gas station',
+        'gas', 'fuel', 'maintenance', 'repair', 'parking', 'transit',
+        'bus', 'train', 'metro', 'subway', 'taxi', 'uber', 'lyft'
+    ]
+
+    # Check for transport keywords first (client-side matching)
+    description_lower = description.lower()
+    if any(keyword in description_lower for keyword in transport_keywords):
+        title = description[:amount_match.start()].strip() if amount_match else description
+        return Expense(title=title, category="transportation", amount=amount)
 
     try:
         prompt = f"""
@@ -242,12 +254,15 @@ async def parse_expense(description: str) -> Expense:
         - Travel: Hotels, flights, vacation
         - Other: Anything else
 
-        IMPORTANT EXAMPLES:
+        IMPORTANT TRANSPORTATION EXAMPLES:
         "motor oil" → Motor oil|Transportation|12.99
         "oil change" → Oil change|Transportation|45.00
         "car wash" → Car wash|Transportation|15.00
         "tires" → Tires|Transportation|200.00
         "gas station" → Gas|Transportation|35.00
+        "fuel pump" → Fuel|Transportation|40.00
+        "car maintenance" → Car maintenance|Transportation|120.00
+        "bus ticket" → Bus ticket|Transportation|2.50
 
         Now categorize this: "{description}"
         Amount to use: {amount} (unless description specifies different)
@@ -270,11 +285,17 @@ async def parse_expense(description: str) -> Expense:
             if len(parts) >= 3:
                 title = parts[0].strip()
                 category = parts[1].strip().lower()
+
+                # Enhanced category validation with transportation priority
+                if 'transport' in category or any(kw in description_lower for kw in transport_keywords):
+                    category = 'transportation'
+
                 valid_categories = {
                     "food", "transportation", "entertainment",
                     "shopping", "bills", "services",
                     "health", "travel", "other"
                 }
+
                 category = category if category in valid_categories else "other"
 
                 try:
@@ -291,8 +312,10 @@ async def parse_expense(description: str) -> Expense:
 
     except Exception as e:
         logger.error(f"OpenAI API error: {e}")
-        # Fallback for API failures
+        # Fallback with transport keyword check
         title = description[:amount_match.start()].strip() if amount_match else description
+        if any(keyword in description_lower for keyword in transport_keywords):
+            return Expense(title=title, category="transportation", amount=amount)
         if amount <= 0:
             raise ValueError("Amount must be positive")
         return Expense(title=title, category="other", amount=amount)
