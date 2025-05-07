@@ -34,10 +34,34 @@
             font-weight: bold;
             color: #0d6efd;
         }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            display: none;
+        }
+
+        .spinner {
+            width: 3rem;
+            height: 3rem;
+        }
+
+        .alert {
+            transition: opacity 0.5s ease-out;
+        }
     </style>
 </head>
 <body>
 <div class="container">
+    <div id="alerts-container"></div>
     <h1 class="my-4">Expense Tracker</h1>
 
     <!-- Expense Form -->
@@ -45,8 +69,12 @@
         <div class="mb-3">
             <label for="expense-input" class="form-label">Expense Description</label>
             <input type="text" class="form-control" id="expense-input" placeholder="e.g. lunch 400" required>
+            <div class="invalid-feedback">Please enter a description with an amount</div>
         </div>
-        <button type="submit" class="btn btn-primary">Add Expense</button>
+        <button type="submit" class="btn btn-primary">
+            <span id="submit-text">Add Expense</span>
+            <span id="submit-spinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+        </button>
     </form>
 
     <!-- Expenses Table -->
@@ -58,11 +86,8 @@
         <div class="btn-group" role="group" id="category-filter">
             <button type="button" class="btn btn-outline-primary filter-btn active" data-category="all">All</button>
             <button type="button" class="btn btn-outline-primary filter-btn" data-category="food">Food</button>
-            <button type="button" class="btn btn-outline-primary filter-btn" data-category="transportation">Transport
-            </button>
-            <button type="button" class="btn btn-outline-primary filter-btn" data-category="entertainment">
-                Entertainment
-            </button>
+            <button type="button" class="btn btn-outline-primary filter-btn" data-category="transportation">Transport</button>
+            <button type="button" class="btn btn-outline-primary filter-btn" data-category="entertainment">Entertainment</button>
             <button type="button" class="btn btn-outline-primary filter-btn" data-category="shopping">Shopping</button>
             <button type="button" class="btn btn-outline-primary filter-btn" data-category="bills">Bills</button>
             <button type="button" class="btn btn-outline-primary filter-btn" data-category="services">Services</button>
@@ -72,21 +97,39 @@
         </div>
     </div>
 
-    <table class="table">
-        <thead>
-        <tr>
-            <th>Title</th>
-            <th>Category</th>
-            <th>Amount (USD)</th>
-        </tr>
-        </thead>
-        <tbody id="expense-table-body">
-        <!-- Expenses will be inserted here -->
-        </tbody>
-    </table>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Date</th>
+                    <th class="text-end">Amount (USD)</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="expense-table-body">
+                <!-- Expenses will be inserted here -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    <nav aria-label="Expenses pagination" class="mt-3">
+        <ul class="pagination justify-content-center" id="pagination">
+            <!-- Pagination will be inserted here -->
+        </ul>
+    </nav>
 
     <!-- Total -->
     <h4>Total Amount: <span id="total-amount">0</span> USD</h4>
+</div>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay">
+    <div class="spinner-border text-light" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
 </div>
 
 <!-- Bootstrap JS and jQuery -->
@@ -94,70 +137,292 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-    // Add Expense Form submission
-    document.getElementById("expense-form").addEventListener("submit", async function (event) {
-        event.preventDefault();
-        const description = document.getElementById("expense-input").value;
+    // Constants
+    const ITEMS_PER_PAGE = 10;
+    let currentPage = 1;
+    let currentCategory = "all";
+    let totalExpenses = 0;
 
-        const response = await fetch("/add_expense/", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({description: description})
-        });
+    // DOM Elements
+    const expenseForm = document.getElementById("expense-form");
+    const expenseInput = document.getElementById("expense-input");
+    const expenseTableBody = document.getElementById("expense-table-body");
+    const totalAmountElement = document.getElementById("total-amount");
+    const paginationElement = document.getElementById("pagination");
+    const loadingOverlay = document.querySelector(".loading-overlay");
+    const submitText = document.getElementById("submit-text");
+    const submitSpinner = document.getElementById("submit-spinner");
 
-        const data = await response.json();
-        document.getElementById("expense-input").value = "";
-        loadExpenses(getCurrentFilter());
+    // Initialize the app
+    document.addEventListener("DOMContentLoaded", function() {
+        loadExpenses(currentCategory, currentPage);
+        setupEventListeners();
     });
 
-    // Function to load expenses
-    async function loadExpenses(category = "all") {
-        const endpoint = category === "all" ? "/get_expenses/" : `/get_expenses/${category}`;
-        const response = await fetch(endpoint);
-        const data = await response.json();
-        const expenses = data.expenses;
+    // Set up event listeners
+    function setupEventListeners() {
+        // Expense form submission
+        expenseForm.addEventListener("submit", async function(event) {
+            event.preventDefault();
+            await handleAddExpense();
+        });
 
-        const tableBody = document.getElementById("expense-table-body");
-        tableBody.innerHTML = "";
+        // Filter buttons
+        document.querySelectorAll('.filter-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                currentCategory = this.dataset.category;
+                currentPage = 1;
+                updateActiveFilterButton();
+                loadExpenses(currentCategory, currentPage);
+            });
+        });
 
-        let totalAmount = 0;
+        // Input validation
+        expenseInput.addEventListener('input', function() {
+            if (this.value.trim() === "") {
+                this.classList.add('is-invalid');
+            } else {
+                this.classList.remove('is-invalid');
+            }
+        });
+    }
 
-        // In your loadExpenses function:
+    // Update active filter button
+    function updateActiveFilterButton() {
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.category === currentCategory) {
+                btn.classList.add('active');
+            }
+        });
+    }
+
+    // Handle adding a new expense
+    async function handleAddExpense() {
+        const description = expenseInput.value.trim();
+
+        if (!description) {
+            expenseInput.classList.add('is-invalid');
+            showAlert('Please enter an expense description', 'danger');
+            return;
+        }
+
+        setLoading(true, true);
+
+        try {
+            const response = await fetch("/add_expense/", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({description: description})
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to add expense');
+            }
+
+            const data = await response.json();
+            expenseInput.value = "";
+            showAlert('Expense added successfully!', 'success');
+            loadExpenses(currentCategory, currentPage);
+        } catch (error) {
+            console.error('Error:', error);
+            showAlert(error.message, 'danger');
+        } finally {
+            setLoading(false, true);
+        }
+    }
+
+    // Load expenses with pagination
+    async function loadExpenses(category = "all", page = 1) {
+        setLoading(true);
+
+        try {
+            const offset = (page - 1) * ITEMS_PER_PAGE;
+            const endpoint = `/get_expenses/?category=${category}&limit=${ITEMS_PER_PAGE}&offset=${offset}`;
+
+            const response = await fetch(endpoint);
+
+            if (!response.ok) {
+                throw new Error('Failed to load expenses');
+            }
+
+            const data = await response.json();
+            totalExpenses = data.total || 0;
+            const expenses = data.expenses || [];
+
+            renderExpenses(expenses);
+            renderPagination();
+            updateTotalAmount(expenses);
+        } catch (error) {
+            console.error('Error loading expenses:', error);
+            showAlert('Failed to load expenses. Please try again.', 'danger');
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    // Render expenses to the table
+    function renderExpenses(expenses) {
+        expenseTableBody.innerHTML = "";
+
+        if (expenses.length === 0) {
+            const row = document.createElement("tr");
+            row.innerHTML = `<td colspan="5" class="text-center">No expenses found</td>`;
+            expenseTableBody.appendChild(row);
+            return;
+        }
+
         expenses.forEach(expense => {
             const row = document.createElement("tr");
+            const date = new Date(expense.created_at);
+            const formattedDate = date.toLocaleDateString();
+
             row.innerHTML = `
-        <td>${expense.title}</td>
-        <td>${expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}</td>
-        <td>$${expense.amount.toFixed(2)}</td>
-    `;
-            tableBody.appendChild(row);
-            totalAmount += parseFloat(expense.amount);
-        });
+                <td>${expense.title}</td>
+                <td>${expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}</td>
+                <td>${formattedDate}</td>
+                <td class="text-end">$${expense.amount.toFixed(2)}</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${expense.id}">Delete</button>
+                </td>
+            `;
 
-        document.getElementById("total-amount").textContent = totalAmount.toFixed(2);
-    }
-
-    // Get currently active filter
-    function getCurrentFilter() {
-        const activeBtn = document.querySelector('.filter-btn.active');
-        return activeBtn ? activeBtn.dataset.category : 'all';
-    }
-
-    // Filter button event listeners
-    document.querySelectorAll('.filter-btn').forEach(button => {
-        button.addEventListener('click', function () {
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.remove('active');
+            // Add event listener to delete button
+            const deleteBtn = row.querySelector('.delete-btn');
+            deleteBtn.addEventListener('click', async () => {
+                await handleDeleteExpense(expense.id);
             });
-            this.classList.add('active');
-            loadExpenses(this.dataset.category);
-        });
-    });
 
-    // Initial load
-    loadExpenses();
+            expenseTableBody.appendChild(row);
+        });
+    }
+
+    // Handle deleting an expense
+    async function handleDeleteExpense(expenseId) {
+        if (!confirm('Are you sure you want to delete this expense?')) {
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            const response = await fetch(`/expenses/${expenseId}`, {
+                method: "DELETE"
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to delete expense');
+            }
+
+            showAlert('Expense deleted successfully', 'success');
+
+            // If we're on a page that might now be empty, go back one page
+            const remainingOnPage = document.querySelectorAll("#expense-table-body tr").length;
+            if (remainingOnPage === 1 && currentPage > 1) {
+                currentPage--;
+            }
+
+            loadExpenses(currentCategory, currentPage);
+        } catch (error) {
+            console.error('Error deleting expense:', error);
+            showAlert('Failed to delete expense. Please try again.', 'danger');
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    // Render pagination controls
+    function renderPagination() {
+        paginationElement.innerHTML = "";
+
+        const totalPages = Math.ceil(totalExpenses / ITEMS_PER_PAGE);
+        if (totalPages <= 1) return;
+
+        // Previous button
+        const prevLi = document.createElement("li");
+        prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+        prevLi.innerHTML = `<a class="page-link" href="#" aria-label="Previous">&laquo;</a>`;
+        prevLi.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (currentPage > 1) {
+                currentPage--;
+                loadExpenses(currentCategory, currentPage);
+            }
+        });
+        paginationElement.appendChild(prevLi);
+
+        // Page numbers
+        for (let i = 1; i <= totalPages; i++) {
+            const pageLi = document.createElement("li");
+            pageLi.className = `page-item ${i === currentPage ? 'active' : ''}`;
+            pageLi.innerHTML = `<a class="page-link" href="#">${i}</a>`;
+            pageLi.addEventListener('click', (e) => {
+                e.preventDefault();
+                currentPage = i;
+                loadExpenses(currentCategory, currentPage);
+            });
+            paginationElement.appendChild(pageLi);
+        }
+
+        // Next button
+        const nextLi = document.createElement("li");
+        nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+        nextLi.innerHTML = `<a class="page-link" href="#" aria-label="Next">&raquo;</a>`;
+        nextLi.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (currentPage < totalPages) {
+                currentPage++;
+                loadExpenses(currentCategory, currentPage);
+            }
+        });
+        paginationElement.appendChild(nextLi);
+    }
+
+    // Update total amount display
+    function updateTotalAmount(expenses) {
+        const total = expenses.reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
+        totalAmountElement.textContent = total.toFixed(2);
+    }
+
+    // Show alert message
+    function showAlert(message, type) {
+        const alertsContainer = document.getElementById('alerts-container');
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show mt-3`;
+        alertDiv.role = 'alert';
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+
+        alertsContainer.appendChild(alertDiv);
+
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+            alertDiv.classList.remove('show');
+            setTimeout(() => alertDiv.remove(), 150);
+        }, 5000);
+    }
+
+    // Set loading state
+    function setLoading(loading, isForm = false) {
+        if (isForm) {
+            if (loading) {
+                submitText.textContent = "Adding...";
+                submitSpinner.classList.remove('d-none');
+                expenseForm.querySelector('button').disabled = true;
+            } else {
+                submitText.textContent = "Add Expense";
+                submitSpinner.classList.add('d-none');
+                expenseForm.querySelector('button').disabled = false;
+            }
+        } else {
+            loadingOverlay.style.display = loading ? 'flex' : 'none';
+        }
+    }
 </script>
 </body>
 </html>
