@@ -217,104 +217,42 @@ async def delete_expense(expense_id: int):
 
 
 async def parse_expense(description: str) -> Expense:
-    # ... (previous code remains the same until the category validation)
-
-    # Enhanced category validation
-    valid_categories = {
-        "food", "transportation", "entertainment",
-        "shopping", "bills", "services",
-        "health", "travel", "other"  # Ensure 'other' is included
-    }
-
-    # Force 'other' if not in valid categories
-    category = category.lower() if category.lower() in valid_categories else "other"
-
-    # Check for transport keywords first (client-side matching)
-    description_lower = description.lower()
-    if any(keyword in description_lower for keyword in transport_keywords):
-        title = description[:amount_match.start()].strip() if amount_match else description
-        return Expense(title=title, category="transportation", amount=amount)
+    # Extract amount
+    amount = 0.0
+    if (match := re.search(r'(\d+\.?\d*)', description)):
+        amount = float(match.group(1))
 
     try:
-        prompt = f"""
-        Analyze this expense description and categorize it: "{description}"
-
-        Respond STRICTLY in this format:
-        title|category|amount
-
-        Categories (MUST USE THESE EXACT NAMES):
-        - Food: Groceries, restaurants, coffee, snacks
-        - Transportation: Gas, oil, car maintenance, repairs, parking, public transit
-        - Entertainment: Movies, games, concerts, streaming
-        - Shopping: Physical goods, clothes, electronics
-        - Bills: Regular payments, utilities, subscriptions
-        - Services: Professional services, repairs
-        - Health: Medical, pharmacy, fitness
-        - Travel: Hotels, flights, vacation
-        - Other: Anything else
-
-        IMPORTANT TRANSPORTATION EXAMPLES:
-        "motor oil" → Motor oil|Transportation|12.99
-        "oil change" → Oil change|Transportation|45.00
-        "car wash" → Car wash|Transportation|15.00
-        "tires" → Tires|Transportation|200.00
-        "gas station" → Gas|Transportation|35.00
-        "fuel pump" → Fuel|Transportation|40.00
-        "car maintenance" → Car maintenance|Transportation|120.00
-        "bus ticket" → Bus ticket|Transportation|2.50
-
-        Now categorize this: "{description}"
-        Amount to use: {amount} (unless description specifies different)
-        """
-
         response = await openai.ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",  # Using faster/cheaper model
             messages=[
-                {"role": "system",
-                 "content": "You are a precise expense categorizer. Use ONLY the specified format and categories."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": """You categorize expenses. Respond ONLY with:
+                    <category>|<title>|<amount>
+                    Categories: food, transportation, entertainment, shopping, bills, services, health, travel, other
+                    Example: transportation|Oil change|45.00"""
+                },
+                {
+                    "role": "user",
+                    "content": f"Categorize: {description} (Amount found: {amount})"
+                }
             ],
             temperature=0.0,
-            max_tokens=100
+            max_tokens=50
         )
 
+        # Parse response
         content = response.choices[0].message.content.strip()
-        if "|" in content:
-            parts = content.split("|")
-            if len(parts) >= 3:
-                title = parts[0].strip()
-                category = parts[1].strip().lower()
+        category, title, amount = content.split("|")
 
-                # Enhanced category validation with transportation priority
-                if 'transport' in category or any(kw in description_lower for kw in transport_keywords):
-                    category = 'transportation'
-
-                valid_categories = {
-                    "food", "transportation", "entertainment",
-                    "shopping", "bills", "services",
-                    "health", "travel", "other"
-                }
-
-                category = category if category in valid_categories else "other"
-
-                try:
-                    parsed_amount = float(parts[2].strip()) if parts[2].strip().replace('.', '',
-                                                                                        1).isdigit() else amount
-                    if parsed_amount <= 0:
-                        raise ValueError("Amount must be positive")
-                    amount = parsed_amount
-                except ValueError:
-                    if amount <= 0:
-                        raise ValueError("Amount must be positive")
-
-                return Expense(title=title, category=category, amount=amount)
+        return Expense(
+            title=title.strip(),
+            category=category.strip().lower(),
+            amount=float(amount.strip())
+        )
 
     except Exception as e:
-        logger.error(f"OpenAI API error: {e}")
-        # Fallback with transport keyword check
-        title = description[:amount_match.start()].strip() if amount_match else description
-        if any(keyword in description_lower for keyword in transport_keywords):
-            return Expense(title=title, category="transportation", amount=amount)
-        if amount <= 0:
-            raise ValueError("Amount must be positive")
+        print(f"AI failed, using fallback: {e}")
+        title = " ".join(description.split()[:-1]) if match else description
         return Expense(title=title, category="other", amount=amount)
