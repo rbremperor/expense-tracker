@@ -217,18 +217,17 @@ async def delete_expense(expense_id: int):
 
 
 async def parse_expense(description: str) -> Expense:
-    # Extract amount if it exists
-    amount = 0.0
-    amount_match = re.search(r'(\d+\.?\d*)', description)
-    if amount_match:
-        amount = float(amount_match.group(1))
+    # ... (previous code remains the same until the category validation)
 
-    # Enhanced transportation keywords
-    transport_keywords = [
-        'motor oil', 'oil change', 'car wash', 'tires', 'gas station',
-        'gas', 'fuel', 'maintenance', 'repair', 'parking', 'transit',
-        'bus', 'train', 'metro', 'subway', 'taxi', 'uber', 'lyft'
-    ]
+    # Enhanced category validation
+    valid_categories = {
+        "food", "transportation", "entertainment",
+        "shopping", "bills", "services",
+        "health", "travel", "other"  # Ensure 'other' is included
+    }
+
+    # Force 'other' if not in valid categories
+    category = category.lower() if category.lower() in valid_categories else "other"
 
     # Check for transport keywords first (client-side matching)
     description_lower = description.lower()

@@ -73,7 +73,8 @@
         </div>
         <button type="submit" class="btn btn-primary">
             <span id="submit-text">Add Expense</span>
-            <span id="submit-spinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+            <span id="submit-spinner" class="spinner-border spinner-border-sm d-none" role="status"
+                  aria-hidden="true"></span>
         </button>
     </form>
 
@@ -86,8 +87,11 @@
         <div class="btn-group" role="group" id="category-filter">
             <button type="button" class="btn btn-outline-primary filter-btn active" data-category="all">All</button>
             <button type="button" class="btn btn-outline-primary filter-btn" data-category="food">Food</button>
-            <button type="button" class="btn btn-outline-primary filter-btn" data-category="transportation">Transport</button>
-            <button type="button" class="btn btn-outline-primary filter-btn" data-category="entertainment">Entertainment</button>
+            <button type="button" class="btn btn-outline-primary filter-btn" data-category="transportation">Transport
+            </button>
+            <button type="button" class="btn btn-outline-primary filter-btn" data-category="entertainment">
+                Entertainment
+            </button>
             <button type="button" class="btn btn-outline-primary filter-btn" data-category="shopping">Shopping</button>
             <button type="button" class="btn btn-outline-primary filter-btn" data-category="bills">Bills</button>
             <button type="button" class="btn btn-outline-primary filter-btn" data-category="services">Services</button>
@@ -100,16 +104,16 @@
     <div class="table-responsive">
         <table class="table">
             <thead>
-                <tr>
-                    <th>Title</th>
-                    <th>Category</th>
-                    <th>Date</th>
-                    <th class="text-end">Amount (USD)</th>
-                    <th></th>
-                </tr>
+            <tr>
+                <th>Title</th>
+                <th>Category</th>
+                <th>Date</th>
+                <th class="text-end">Amount (USD)</th>
+                <th></th>
+            </tr>
             </thead>
             <tbody id="expense-table-body">
-                <!-- Expenses will be inserted here -->
+            <!-- Expenses will be inserted here -->
             </tbody>
         </table>
     </div>
@@ -154,7 +158,7 @@
     const submitSpinner = document.getElementById("submit-spinner");
 
     // Initialize the app
-    document.addEventListener("DOMContentLoaded", function() {
+    document.addEventListener("DOMContentLoaded", function () {
         loadExpenses(currentCategory, currentPage);
         setupEventListeners();
     });
@@ -162,14 +166,14 @@
     // Set up event listeners
     function setupEventListeners() {
         // Expense form submission
-        expenseForm.addEventListener("submit", async function(event) {
+        expenseForm.addEventListener("submit", async function (event) {
             event.preventDefault();
             await handleAddExpense();
         });
 
         // Filter buttons
         document.querySelectorAll('.filter-btn').forEach(button => {
-            button.addEventListener('click', function() {
+            button.addEventListener('click', function () {
                 currentCategory = this.dataset.category;
                 currentPage = 1;
                 updateActiveFilterButton();
@@ -178,7 +182,7 @@
         });
 
         // Input validation
-        expenseInput.addEventListener('input', function() {
+        expenseInput.addEventListener('input', function () {
             if (this.value.trim() === "") {
                 this.classList.add('is-invalid');
             } else {
@@ -240,8 +244,9 @@
         setLoading(true);
 
         try {
-            const offset = (page - 1) * ITEMS_PER_PAGE;
-            const endpoint = `/get_expenses/?category=${category}&limit=${ITEMS_PER_PAGE}&offset=${offset}`;
+            const endpoint = category === "all"
+                ? `/get_expenses/?limit=${ITEMS_PER_PAGE}&offset=${(page - 1) * ITEMS_PER_PAGE}`
+                : `/get_expenses/?category=${category}&limit=${ITEMS_PER_PAGE}&offset=${(page - 1) * ITEMS_PER_PAGE}`;
 
             const response = await fetch(endpoint);
 
@@ -250,12 +255,8 @@
             }
 
             const data = await response.json();
-            totalExpenses = data.total || 0;
-            const expenses = data.expenses || [];
-
-            renderExpenses(expenses);
-            renderPagination();
-            updateTotalAmount(expenses);
+            renderExpenses(data.expenses);
+            // ... rest of the function
         } catch (error) {
             console.error('Error loading expenses:', error);
             showAlert('Failed to load expenses. Please try again.', 'danger');
@@ -280,21 +281,19 @@
             const date = new Date(expense.created_at);
             const formattedDate = date.toLocaleDateString();
 
-            row.innerHTML = `
-                <td>${expense.title}</td>
-                <td>${expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}</td>
-                <td>${formattedDate}</td>
-                <td class="text-end">$${expense.amount.toFixed(2)}</td>
-                <td class="text-end">
-                    <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${expense.id}">Delete</button>
-                </td>
-            `;
+            // Ensure category is properly capitalized
+            const categoryDisplay = expense.category === 'other' ? 'Other' :
+                expense.category.charAt(0).toUpperCase() + expense.category.slice(1);
 
-            // Add event listener to delete button
-            const deleteBtn = row.querySelector('.delete-btn');
-            deleteBtn.addEventListener('click', async () => {
-                await handleDeleteExpense(expense.id);
-            });
+            row.innerHTML = `
+            <td>${expense.title}</td>
+            <td>${categoryDisplay}</td>
+            <td>${formattedDate}</td>
+            <td class="text-end">$${expense.amount.toFixed(2)}</td>
+            <td class="text-end">
+                <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${expense.id}">Delete</button>
+            </td>
+        `;
 
             expenseTableBody.appendChild(row);
         });
